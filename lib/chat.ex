@@ -14,8 +14,8 @@ defmodule Chat do
 
     pid =
       spawn(fn ->
-        greet(client)
         register(name)
+        greet(client, name)
         IO.puts("User #{name} has connected")
         serve(client, name)
       end)
@@ -27,11 +27,30 @@ defmodule Chat do
   defp serve(client, name) do
     receive do
       {:tcp, _socket, msg} ->
-        broadcast({:message, name, msg})
+        trimmed_msg = msg |> String.trim()
+
+        case String.split(trimmed_msg, " ", parts: 3, trim: true) do
+          ["/help"] ->
+            help(client)
+
+          ["/who"] ->
+            who(client)
+
+          ["/msg", user, text] ->
+            msg(client, name, user, text)
+
+          _ ->
+            broadcast({:message, name, trimmed_msg})
+        end
+
         serve(client, name)
 
       {:message, from_name, msg} ->
-        message(client, "#{from_name}: #{String.trim(msg)}")
+        message(client, "#{from_name}: #{msg}")
+        serve(client, name)
+
+      {:private_message, from_name, msg} ->
+        message(client, "[private] #{from_name}: #{msg}")
         serve(client, name)
 
       {:connected, from_name} ->
@@ -48,12 +67,38 @@ defmodule Chat do
     end
   end
 
-  defp greet(client) do
+  defp help(client) do
+    message(
+      client,
+      "/who (lists users)\n/msg <user> <text> (send private message to user)"
+    )
+  end
+
+  defp who(client) do
+    names =
+      Registry.lookup(:chat, "lobby") |> Enum.map(fn {_, name} -> name end) |> Enum.join("\n")
+
+    message(client, names)
+  end
+
+  defp msg(client, from_user, to_user, msg) do
+    result = Registry.lookup(:chat, "lobby") |> Enum.find(fn {_, name} -> to_user == name end)
+
+    case result do
+      {pid, _} ->
+        send(pid, {:private_message, from_user, msg})
+
+      _ ->
+        message(client, "User not found")
+    end
+  end
+
+  defp greet(client, name) do
     users = Registry.lookup(:chat, "lobby") |> length()
 
     message(
       client,
-      "Welcome to the chat! There #{if users == 1, do: "is", else: "are"} currently #{users} other #{if users == 1, do: "user", else: "users"} online."
+      "Welcome #{name}! There #{if users == 1, do: "is", else: "are"} currently #{users} #{if users == 1, do: "user", else: "users"} online. To view commands, type /help."
     )
   end
 
