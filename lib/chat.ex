@@ -39,6 +39,10 @@ defmodule Chat do
           ["/msg", user, text] ->
             msg(client, name, user, text)
 
+          ["/nick", new_name] ->
+            nick(client, new_name)
+            serve(client, new_name)
+
           _ ->
             broadcast({:message, name, trimmed_msg})
         end
@@ -70,7 +74,7 @@ defmodule Chat do
   defp help(client) do
     message(
       client,
-      "/who (lists users)\n/msg <user> <text> (send private message to user)"
+      "/who (lists users)\n/nick <name> (changes your name)\n/msg <user> <text> (sends private message to user)"
     )
   end
 
@@ -91,6 +95,12 @@ defmodule Chat do
       _ ->
         message(client, "User not found")
     end
+  end
+
+  defp nick(client, new_name) do
+    Registry.unregister(:chat, "lobby")
+    Registry.register(:chat, "lobby", new_name)
+    message(client, "Your name is now #{new_name}")
   end
 
   defp greet(client, name) do
