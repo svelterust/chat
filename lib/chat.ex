@@ -35,8 +35,7 @@ defmodule Chat do
           ["/who"] ->
             names =
               Registry.lookup(:chat, "lobby")
-              |> Enum.map(fn {_, name} -> name end)
-              |> Enum.join("\n")
+              |> Enum.map_join("\n", fn {_, name} -> name end)
 
             msg(client, names)
 
