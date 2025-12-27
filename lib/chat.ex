@@ -11,7 +11,6 @@ defmodule Chat do
   defp handle(socket) do
     {:ok, client} = :gen_tcp.accept(socket)
     name = "user_#{1000 + :rand.uniform(8999)}"
-
     pid =
       spawn(fn ->
         Registry.register(:chat, "lobby", name)
@@ -20,7 +19,6 @@ defmodule Chat do
         broadcast({:info, "#{name} joined"})
         serve(client, name)
       end)
-
     :gen_tcp.controlling_process(client, pid)
     handle(socket)
   end
@@ -34,10 +32,7 @@ defmodule Chat do
             msg(client, commands |> Enum.join("\n"))
 
           ["/who"] ->
-            names =
-              Registry.lookup(:chat, "lobby")
-              |> Enum.map_join("\n", fn {_, name} -> name end)
-
+            names = Registry.lookup(:chat, "lobby") |> Enum.map_join("\n", fn {_, name} -> name end)
             msg(client, names)
 
           ["/nick", new_name] ->
@@ -56,7 +51,6 @@ defmodule Chat do
           _ ->
             broadcast({:chat, name, String.trim(data)})
         end
-
         serve(client, name)
 
       {:chat, from, text} ->
@@ -72,11 +66,11 @@ defmodule Chat do
     end
   end
 
-  defp msg(socket, text), do: :gen_tcp.send(socket, "#{text}\r\n")
-
   defp broadcast(message) do
     Registry.dispatch(:chat, "lobby", fn entries ->
       for {pid, _} <- entries, pid != self(), do: send(pid, message)
     end)
   end
+
+  defp msg(socket, text), do: :gen_tcp.send(socket, "#{text}\r\n")
 end
