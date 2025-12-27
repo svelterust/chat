@@ -30,7 +30,8 @@ defmodule Chat do
       {:tcp, _, data} ->
         case String.split(String.trim(data), " ", parts: 3, trim: true) do
           ["/help"] ->
-            msg(client, "/who\n/nick <name>\n/msg <user> <text>")
+            commands = ["/who", "/nick <name>", "/msg <user> <text>"]
+            msg(client, commands |> Enum.join("\n"))
 
           ["/who"] ->
             names =
