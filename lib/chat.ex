@@ -51,9 +51,9 @@ defmodule Chat do
   defp greet(client) do
     users = Registry.lookup(:chat, "lobby") |> length()
 
-    :gen_tcp.send(
+    message(
       client,
-      "Welcome to the chat! There are currently #{users} other #{if users == 1, do: "user", else: "users"} online.\r\n"
+      "Welcome to the chat! There #{if users == 1, do: "is", else: "are"} currently #{users} other #{if users == 1, do: "user", else: "users"} online."
     )
   end
 
