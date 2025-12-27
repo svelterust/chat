@@ -2,9 +2,9 @@ defmodule Chat do
   @opts [:binary, packet: :line, reuseaddr: true, active: true]
 
   def listen(port \\ 4000) do
-    IO.puts("Listening on port #{port}")
     Registry.start_link(keys: :duplicate, name: :chat)
     {:ok, socket} = :gen_tcp.listen(port, @opts)
+    IO.puts("Listening on port #{port}")
     handle(socket)
   end
 
@@ -14,9 +14,10 @@ defmodule Chat do
 
     pid =
       spawn(fn ->
-        register(name)
-        greet(client, name)
-        IO.puts("User #{name} has connected")
+        Registry.register(:chat, "lobby", name)
+        count = Registry.lookup(:chat, "lobby") |> length()
+        msg(client, "Welcome #{name}! Online: #{count}. Type /help.")
+        broadcast({:info, "#{name} joined"})
         serve(client, name)
       end)
 
@@ -26,100 +27,52 @@ defmodule Chat do
 
   defp serve(client, name) do
     receive do
-      {:tcp, _socket, msg} ->
-        trimmed_msg = msg |> String.trim()
-
-        case String.split(trimmed_msg, " ", parts: 3, trim: true) do
+      {:tcp, _, data} ->
+        case String.split(String.trim(data), " ", parts: 3, trim: true) do
           ["/help"] ->
-            help(client)
+            msg(client, "/who\n/nick <name>\n/msg <user> <text>")
 
           ["/who"] ->
-            who(client)
+            names =
+              Registry.lookup(:chat, "lobby")
+              |> Enum.map(fn {_, name} -> name end)
+              |> Enum.join("\n")
 
-          ["/msg", user, text] ->
-            msg(client, name, user, text)
+            msg(client, names)
 
           ["/nick", new_name] ->
-            nick(client, new_name)
+            Registry.unregister(:chat, "lobby")
+            Registry.register(:chat, "lobby", new_name)
+            broadcast({:info, "#{name} is now #{new_name}"})
+            msg(client, "Name changed to #{new_name}")
             serve(client, new_name)
 
+          ["/msg", to, text] ->
+            case Enum.find(Registry.lookup(:chat, "lobby"), fn {_, name} -> name == to end) do
+              {pid, _} -> send(pid, {:info, "[private] #{name}: #{text}"})
+              _ -> msg(client, "User not found")
+            end
+
           _ ->
-            broadcast({:message, name, trimmed_msg})
+            broadcast({:chat, name, String.trim(data)})
         end
 
         serve(client, name)
 
-      {:message, from_name, msg} ->
-        message(client, "#{from_name}: #{msg}")
+      {:chat, from, text} ->
+        msg(client, "#{from}: #{text}")
         serve(client, name)
 
-      {:private_message, from_name, msg} ->
-        message(client, "[private] #{from_name}: #{msg}")
+      {:info, text} ->
+        msg(client, "* #{text}")
         serve(client, name)
 
-      {:connected, from_name} ->
-        message(client, "User #{from_name} has connected")
-        serve(client, name)
-
-      {:disconnected, from_name} ->
-        message(client, "User #{from_name} has disconnected")
-        serve(client, name)
-
-      {:tcp_closed, _socket} ->
-        IO.puts("User #{name} has disconnected")
-        broadcast({:disconnected, name})
+      {:tcp_closed, _} ->
+        broadcast({:info, "#{name} left"})
     end
   end
 
-  defp help(client) do
-    message(
-      client,
-      "/who (lists users)\n/nick <name> (changes your name)\n/msg <user> <text> (sends private message to user)"
-    )
-  end
-
-  defp who(client) do
-    names =
-      Registry.lookup(:chat, "lobby") |> Enum.map(fn {_, name} -> name end) |> Enum.join("\n")
-
-    message(client, names)
-  end
-
-  defp msg(client, from_user, to_user, msg) do
-    result = Registry.lookup(:chat, "lobby") |> Enum.find(fn {_, name} -> to_user == name end)
-
-    case result do
-      {pid, _} ->
-        send(pid, {:private_message, from_user, msg})
-
-      _ ->
-        message(client, "User not found")
-    end
-  end
-
-  defp nick(client, new_name) do
-    Registry.unregister(:chat, "lobby")
-    Registry.register(:chat, "lobby", new_name)
-    message(client, "Your name is now #{new_name}")
-  end
-
-  defp greet(client, name) do
-    users = Registry.lookup(:chat, "lobby") |> length()
-
-    message(
-      client,
-      "Welcome #{name}! There #{if users == 1, do: "is", else: "are"} currently #{users} #{if users == 1, do: "user", else: "users"} online. To view commands, type /help."
-    )
-  end
-
-  defp register(name) do
-    Registry.register(:chat, "lobby", name)
-    broadcast({:connected, name})
-  end
-
-  defp message(client, msg) do
-    :gen_tcp.send(client, "#{msg}\r\n")
-  end
+  defp msg(socket, text), do: :gen_tcp.send(socket, "#{text}\r\n")
 
   defp broadcast(message) do
     Registry.dispatch(:chat, "lobby", fn entries ->
